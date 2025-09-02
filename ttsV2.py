@@ -5,6 +5,10 @@ from openai import AsyncOpenAI
 from elevenlabs import VoiceSettings
 from elevenlabs.client import AsyncElevenLabs
 
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain.schema import HumanMessage, SystemMessage
+from langchain.callbacks.base import AsyncIteratorCallbackHandler
+
 import speech_recognition as sr
 
 from deepgram import (
@@ -19,6 +23,12 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 aclient = AsyncOpenAI(api_key=OPENAI_API_KEY)
 r = sr.Recognizer()
+
+chat_model = ChatGoogleGenerativeAI(
+    model="gemma-7b",  
+    temperature=1,
+    streaming=True
+)
 
 def is_installed(lib_name):
     return shutil.which(lib_name) is not None
@@ -156,6 +166,29 @@ async def chat_completion(query, history=None):
             yield delta.content
 
     await text_to_speech_input_streaming(VOICE_ID, text_iterator())
+
+async def chat_completion_gemma(query, history=None):
+    """Retrieve text from Google Gemma via LangChain and pass it to the text-to-speech function in Hindi with conversation history support."""
+    if history is None:
+        history = []
+
+    history.append(SystemMessage(content="Please respond in Hindi for all queries. Answer accordingly."))
+    history.append(HumanMessage(content=query))
+
+    logging.info("Starting chat completion with Gemma...")
+    start_time = time.time()
+
+    callback = AsyncIteratorCallbackHandler()
+    task = chat_model.agenerate([history], callbacks=[callback])
+
+    async def text_iterator():
+        async for token in callback.aiter():
+            yield token
+
+    await text_to_speech_input_streaming(VOICE_ID, text_iterator())
+
+    await task
+    logging.info(f"Chat completion took {time.time() - start_time:.2f} seconds")
 
 if __name__ == "__main__":
     initial_input = '"नमस्ते, मैं Fab Hotels से बोल रही हूँ। मैं 21 September से 20 October तक के लिए deluxe room की availability के बारे में जानकारी लेना चाहती हूँ। क्या आप please confirm कर सकते हैं और अगर available है तो pricing और booking process के बारे में भी बता सकते हैं?"'
